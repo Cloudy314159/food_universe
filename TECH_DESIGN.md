@@ -271,6 +271,78 @@ flowchart LR
 
 ---
 
+### 5.1 后端云函数的结构（Day 19 重构后）
+
+> 云函数 `api` 原来是一个 **491 行的单文件**，里面混着四类东西：数据库查询、HTTP 响应拼装、
+> 字段校验、路由。
+> Day 19 按「**每层只知道自己那点事**」拆成了 6 个文件。
+
+```
+cloudfunctions/api/                ← 云函数（后端）
+├── index.js                       【接口层】起服务 / 路由 / 4 个 handler
+├── lib/
+│   ├── http.js                    【HTTP 工具】响应外壳、读请求体、解析 limit
+│   └── validate.js                【校验】字段规则（纯逻辑，产出中文报错）
+├── repositories/
+│   ├── client.js                  【底层客户端】PostgREST 请求 + 凭据 + 错误码归一
+│   ├── itemsRepository.js         【数据访问】items 表的读 / 写
+│   └── historyRepository.js       【数据访问】history 表的读
+├── scf_bootstrap                  平台要求的启动脚本（node 路径写死）
+└── package.json                   零依赖
+```
+
+**分层示意图**
+
+```mermaid
+flowchart TD
+    A["浏览器 / curl<br/>HTTP 请求"] --> B
+
+    subgraph FN["云函数 api（跑在云上）"]
+        B["<b>index.js · 接口层</b><br/>起服务 + 路由 + 4 个 handler<br/>接请求 → 调下层 → 返响应"]
+        C["<b>lib/http.js · HTTP 工具</b><br/>响应外壳 {ok,data,error}<br/>读 body、解析 limit"]
+        D["<b>lib/validate.js · 校验</b><br/>字段规则（纯逻辑）<br/>产出中文报错"]
+        E["<b>repositories/*Repository.js<br/>数据访问层</b><br/>这张表有哪些列、按什么排序"]
+        F["<b>repositories/client.js<br/>底层客户端</b><br/>地址 + API Key + 发请求<br/>剥掉网关的错误码前缀"]
+    end
+
+    B --> C
+    B --> D
+    B --> E
+    E --> F
+    F --> G[("云开发 PostgreSQL<br/>items / history")]
+```
+
+**每层管什么、不管什么**
+
+| 层 | 文件 | 管 | **不管** |
+|---|---|---|---|
+| 接口层 | `index.js` | 起服务、路由、把请求翻译成"要什么数据" | 表名、列名、SQL 参数、响应外壳怎么拼 |
+| HTTP 工具 | `lib/http.js` | 统一响应外壳、读请求体、解析 limit | 任何业务概念 |
+| 校验 | `lib/validate.js` | 字段规则（长度 / 枚举 / 空白） | 查库（重名要查库，交给 repository） |
+| 数据访问 | `repositories/*Repository.js` | 这张表有哪些列、按什么排序 | HTTP 状态码怎么定 |
+| 底层客户端 | `repositories/client.js` | 地址、凭据、发请求、错误码归一 | 业务规则 |
+
+**①「查数据库」这段代码从哪移到了哪**
+
+从 `index.js` 的 `queryTable()` / `insertRow()` → **挪到了 `repositories/`**。
+现在 `index.js` 里**一个字都不出现**表名和列名 —— 以后改表结构（加列、换排序）
+不用动接口代码；改响应格式也不用动数据库代码。
+
+**② 一个容易漏的地方：错误码前缀在哪儿剥**
+
+`repositories/client.js` 会把 CloudBase 网关包装过的错误码（`DATABASE_23505`）
+**剥成裸的 `23505`** 再往上抛。
+这个知识属于「跟数据库打交道的那一层」，所以放在最底下统一处理 ——
+上面的 `index.js` 直接判 `err.pgCode === '23505'` 就行，不用各自记得去剥。
+
+**③ 为什么不是"每个表一个 handler"**
+
+`GET /api/items` 和 `POST /api/items` 走的是**同一个 repository**（都是 items 表），
+但 handler 是分开的两个 —— 因为「读」和「写」的业务规则完全不同（写要校验、要翻 409）。
+**分层是按"职责"切的，不是按"表"切的。**
+
+---
+
 ## 6. 数据模型
 
 ### 6.1 三个实体
