@@ -1966,3 +1966,110 @@ body {
     left: 8px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   页面 5 · 检查台（Day 20）—— 开发/验收用，**不进导航**
+   ═══════════════════════════════════════════════════════════════════════ */
+.check-page {
+  max-width: 720px;
+}
+
+/* ⚠️ 这里**故意没有 .check-head / .check-title** ——
+   页面标题由 App.jsx 统一渲染，检查台组件自己不再写一个（写了会重复出现两遍）。 */
+.check-card {
+  margin-bottom: 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.check-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.check-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.check-line {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.check-line.ok {
+  color: var(--success);
+}
+
+.check-line.fail {
+  color: var(--danger);
+}
+
+.check-line .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.check-rows {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.check-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.check-row:last-child {
+  border-bottom: 0;
+}
+
+.check-row-name {
+  font-size: 16px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.check-row-meta {
+  flex: none;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.check-id {
+  font-size: 12px;
+  color: var(--ink-3);
+  word-break: break-all;
+}
+
+.check-foot {
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.check-api {
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--ink-2);
+}

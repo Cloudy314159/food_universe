@@ -21,6 +21,7 @@ import Home from './pages/Home.jsx'
 import List from './pages/List.jsx'
 import Add from './pages/Add.jsx'
 import History from './pages/History.jsx'
+import Check from './pages/Check.jsx'
 import NebulaCanvas from './components/NebulaCanvas.jsx'
 
 // 四个页面。路由方式见 TECH_DESIGN.md §8.2：
@@ -30,6 +31,17 @@ const PAGES = [
   { hash: '#/list', title: '我的清单', hint: '看看有哪些候选，也可以删掉不想吃的。' },
   { hash: '#/add', title: '添加', hint: '把常吃的那几家也加进来。' },
   { hash: '#/history', title: '历史记录', hint: '最近推荐过什么，都记在这儿。' },
+
+  /* ⚠️ 检查台（Day 20）**不进导航** —— 靠 hidden: true 挡掉。
+     它是给开发/验收用的（后端活不活、数据多少、能不能写），不是给客户用的功能。
+     地址栏敲 #/check 就进得来 —— 路由认得它（readHash 用 PAGES.some 校验），
+     但菜单里不会多这一项。 */
+  {
+    hash: '#/check',
+    title: '检查台',
+    hint: '后端活不活、数据有多少、写不写得进去。',
+    hidden: true,
+  },
 ]
 
 function readHash() {
@@ -442,6 +454,9 @@ export default function App() {
     )
   } else if (page.hash === '#/add') {
     content = <Add tagOptions={addTagOptions} onAdd={handleAdd} />
+  } else if (page.hash === '#/check') {
+    /* 检查台自己去调接口，不依赖 App 的启动流程 */
+    content = <Check />
   } else {
     content = (
       <History
@@ -462,7 +477,7 @@ export default function App() {
         <span className="brand">想吃啥</span>
         <span className="brand-sub">中午不知道吃啥，问我</span>
         <nav className="nav">
-          {PAGES.map((p) => (
+          {PAGES.filter((p) => !p.hidden).map((p) => (
             <a
               key={p.hash}
               href={p.hash}

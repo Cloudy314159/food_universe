@@ -16,6 +16,25 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+
+    /* ⚠️ 本地开发时的跨域问题（Day 20 加）
+
+       背景：免费体验版**不让手动加安全域名** ——
+       `tcb cors add localhost:5173` 报「当前套餐无法执行此操作」。
+       所以本地 dev server 直接去调公网接口，会被浏览器跨域拦下。
+
+       解法：**让 dev server 当中间人**（Vite 自带的 proxy）。
+       浏览器只跟 localhost:5173 打交道（同源，压根不产生跨域），
+       由 dev server 在**服务器侧**把 /api 转发到公网接口。
+       —— 服务器和服务器之间没有"跨域"这回事，跨域是浏览器的规矩。
+
+       ⚠️ 只在 `vite dev` 时生效，构建产物完全不受影响（生产仍直接调公网地址）。 */
+    proxy: {
+      '/api': {
+        target: 'https://model-d5gisaem106ad6a18-1500042790.ap-shanghai.app.tcloudbase.com',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: 'dist',

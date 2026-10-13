@@ -186,3 +186,19 @@ export async function createItem(payload) {
   // tags 兜底成数组 —— 跟 fetchItems 同一个理由：真为 null 时页面会崩
   return { item: { ...item, tags: Array.isArray(item.tags) ? item.tags : [] } }
 }
+
+/* ── 接口 ④：健康检查（Day 20 · 检查台用）───────────────────────────── */
+
+/**
+ * 问一句「后端活着吗」。
+ * **不查库** —— 这是它最轻的地方，也是它有用的地方：
+ * 它挂了 = 连服务都没连上；它通了但 `fetchItems` 挂了 = 服务活着、数据库有问题。
+ * 两者分开看，排查时少猜一半。
+ *
+ * @returns `{ service: string, ms: number }` —— ms 是往返耗时（含解析）
+ */
+export async function fetchHealth() {
+  const t0 = Date.now()
+  const data = await requestJson('/api/health')
+  return { service: data?.service ?? '未知', ms: Date.now() - t0 }
+}
