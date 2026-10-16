@@ -196,13 +196,40 @@ export default function Home({
 
   const filteredOut = rec.itemCount > 0
 
+  /* 「实时推荐引擎已就绪」那条小标签（Day 21 · 额外改动）。
+     ⚠️ 状态必须是真的：
+        加载中 → 写「正在连接…」；失败 → 干脆不显示。
+        挂一个**恒亮的绿标签**等于骗人 —— 明明连不上还写「已就绪」。
+     空态（empty）算就绪：引擎在跑，只是候选被条件筛没了。 */
+  const engine =
+    viewState === VIEW_STATE.loading
+      ? { tone: 'waiting', text: '正在连接美食宇宙…' }
+      : viewState === VIEW_STATE.error
+        ? null
+        : { tone: 'ok', text: '实时推荐引擎已就绪' }
+
   return (
     <>
-      {/* Day 10：「加上我常吃的」原来挂在页头右侧（窄屏下会占满整行、
-          看起来像个主按钮，把标题和推荐切开）。已挪到推荐结果之后 —— 见下面 hero-block。 */}
+      {/* Day 21 · 额外改动：标题换成「美食宇宙」的调子（爸爸指定，照他的原型来的）
+          · 标题拆两行，第二行做渐变 —— 只用颜色，没加任何多余元素
+          · 副标题里的数字**故意不写**：库里条数会变，而且下面筛选区那行
+            已经写着「共 N 个候选」了，再报一次数就是重复说同一件事
+          · eyebrow 那条小标签**跟着真实状态走**，不是装饰（见上面 engine 的注释） */}
       <PageHeader
-        title="今天就吃这家"
-        subtitle="今天中午吃什么？不用填任何东西"
+        eyebrow={
+          engine && (
+            <span className={engine.tone === 'ok' ? 'engine-badge' : 'engine-badge is-waiting'}>
+              {engine.text}
+            </span>
+          )
+        }
+        title={
+          <>
+            宇宙为你
+            <span className="title-glow">挑选今日美食</span>
+          </>
+        }
+        subtitle="不必纠结，不用填写。从满天美食星球里，为你随机点亮今日午餐 —— 每一次点击，都是一次味蕾探险。"
         updatedAt={updatedAt}
       />
 
@@ -306,6 +333,14 @@ export default function Home({
 
         {/* ③ 浏览区：三行平级维度（类别 / 平台 / 口味）+ 卡片网格 */}
         <section className="browse-block">
+          {/* Day 21：这块原来**没有标题**，三行筛选直接怼上来，看不出这是一整块。
+              给它一个名字，跟上面的「宇宙」调性对上。
+
+              ⚠️ 用 h2 而不是 p：它就是一个区块标题，语义上该是标题。
+                 顺带把「全项目只有 h1 和 h3、没有 h2」这个跳级问题补上了
+                 —— 之前那条已知未修（怕动到卡片名的 h3），这次是**新增**，没碰卡片。 */}
+          <h2 className="browse-title">筛选星云</h2>
+
           <div className="axis-rows">
             <AxisRow
               label="类别"

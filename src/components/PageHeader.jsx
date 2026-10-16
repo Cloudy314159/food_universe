@@ -13,12 +13,15 @@ function formatUpdatedAt(ts) {
   return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export default function PageHeader({ title, subtitle, updatedAt, children }) {
+export default function PageHeader({ eyebrow, title, subtitle, updatedAt, children }) {
   const label = formatUpdatedAt(updatedAt)
 
   return (
     <header className="page-header">
       <div className="page-header-main">
+        {/* 标题上方的小标签（Day 21 加）。不传 `eyebrow` 就整块不渲染 ——
+            所以这是纯加法，别的页面一个字不受影响。 */}
+        {eyebrow && <div className="page-eyebrow">{eyebrow}</div>}
         <h1 className="page-title">{title}</h1>
         {subtitle && <p className="page-sub">{subtitle}</p>}
         <p className="page-updated">
