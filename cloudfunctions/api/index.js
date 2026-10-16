@@ -19,10 +19,12 @@
  *   改响应格式不用动数据库代码。每一层只知道自己那点事。
  *
  * ── 它提供什么 ─────────────────────────────────────────────────────
- *   GET  /api/health    后端活着吗（不查库）
- *   GET  /api/items     读全部候选条目           ← 首页候选池、清单页都用它
- *   POST /api/items     新增一个条目              ← 添加页提交
- *   GET  /api/history   读最近的历史记录（倒序）   ← 历史记录页
+ *   GET   /api/health       后端活着吗（不查库）
+ *   GET   /api/items        读全部候选条目        ← 首页候选池、清单页都用它
+ *   POST  /api/items        新增一个条目           ← 添加页提交
+ *   PATCH /api/items/:id    改一个条目（部分更新）  ← Day 22 新增（前端暂无入口）
+ *   DELETE /api/items/:id   删一个条目             ← 清单页删除按钮（Day 22）
+ *   GET   /api/history      读最近的历史记录（倒序） ← 历史记录页
  *
  * 依据：仓库根目录 api-contract.md 第四节。
  *
@@ -35,8 +37,8 @@
 
 const http = require('http')
 
-const { sendOk, sendErr, parseLimit, readBody } = require('./lib/http.js')
-const { validateNewItem } = require('./lib/validate.js')
+const { sendOk, sendErr, parseLimit, readJsonBody } = require('./lib/http.js')
+const { validateNewItem, validateItemPatch } = require('./lib/validate.js')
 const itemsRepository = require('./repositories/itemsRepository.js')
 const historyRepository = require('./repositories/historyRepository.js')
 
@@ -77,23 +79,12 @@ async function handleHistory(res, url) {
  * 每一步的细节都在下层（readBody / validateNewItem / itemsRepository.createItem）。
  */
 async function handleCreateItem(req, res) {
-  /* ① 读请求体、解析 JSON */
-  let raw = ''
-  try {
-    raw = await readBody(req)
-  } catch {
-    return sendErr(res, 400, 'INVALID_BODY', '请求体读取失败，请重试')
-  }
-
-  let payload
-  try {
-    payload = JSON.parse(raw)
-  } catch {
-    return sendErr(res, 400, 'INVALID_BODY', '请求体必须是 JSON 格式')
-  }
+  /* ① 读请求体、解析 JSON（细节在 lib/http.js 的 readJsonBody） */
+  const rb = await readJsonBody(req)
+  if (!rb.ok) return sendErr(res, rb.status, rb.code, rb.message)
 
   /* ② 校验 —— 规则在 lib/validate.js，这里只管"不合格就照它说的回" */
-  const checked = validateNewItem(payload)
+  const checked = validateNewItem(rb.payload)
   if (!checked.ok) {
     return sendErr(res, checked.status, checked.code, checked.message)
   }
@@ -126,16 +117,140 @@ async function handleCreateItem(req, res) {
   }
 }
 
+/* PATCH /api/items/:id —— 改一个条目（**部分更新**：只改传了的字段）
+ *
+ * 依据：api-contract.md 第四节「3. PATCH /api/items/:id」。
+ * 和 POST 一样是一条直线：**读 body → 校验 → 改库 → 翻错误码 → 返响应**。
+ *
+ * ⚠️ 这个 handler 有**三种失败**，别混：
+ *    · 校验不过   → 400（validate 层给的，中文消息直接用）
+ *    · id 查不到  → 404 NOT_FOUND（"改了 0 行"就是没这条）
+ *    · 新名字撞人 → 409 DUPLICATE_NAME（数据库 23505）
+ */
+async function handleUpdateItem(req, res, id) {
+  const rb = await readJsonBody(req)
+  if (!rb.ok) return sendErr(res, rb.status, rb.code, rb.message)
+
+  const checked = validateItemPatch(rb.payload)
+  if (!checked.ok) {
+    return sendErr(res, checked.status, checked.code, checked.message)
+  }
+
+  try {
+    const item = await itemsRepository.updateItem(id, checked.fields)
+
+    /* ⚠️ 改一个不存在的 id，数据库**不报错** —— 它只"影响了 0 行"。
+       repository 已经把这种情况收敛成 `null`，这里翻成 404。
+       用 `== null` 而不是 `!item`：将来返回值形状变了也不会漏判。 */
+    if (item == null) {
+      console.log('[api] PATCH /api/items 未命中', JSON.stringify({ id }))
+      return sendErr(res, 404, 'NOT_FOUND', `没有找到 id 为「${id}」的条目，它可能已经被删了`)
+    }
+
+    console.log(
+      '[api] PATCH /api/items 成功',
+      JSON.stringify({ id, fields: Object.keys(checked.fields) })
+    )
+    return sendOk(res, { item })
+  } catch (err) {
+    /* 数据库错误码已由 repositories/client.js 剥过网关前缀，
+       这里的 `err.pgCode` 就是裸的 SQLSTATE。 */
+    if (err.pgCode === '23505') {
+      // 唯一约束冲突 = 改完的名字撞上别人 → 契约要求 409，不能变成 500
+      const newName = checked.fields.name ?? id
+      console.log('[api] PATCH /api/items 被拒（重名）', JSON.stringify({ id, name: newName }))
+      return sendErr(res, 409, 'DUPLICATE_NAME', `已经有叫「${newName}」的条目了，换个名字吧`)
+    }
+    if (err.pgCode === '23514') {
+      // CHECK 约束 —— 应用层理论上已挡住，兜底也给中文
+      console.log(
+        '[api] PATCH /api/items 被拒（字段不合法）',
+        JSON.stringify({ id, detail: err.message })
+      )
+      return sendErr(res, 400, 'INVALID_FIELD', '有字段的取值不合法，检查一下类别/平台/辣度')
+    }
+    console.log('[api] PATCH /api/items 失败', JSON.stringify({ id, detail: err.message }))
+    throw err // 交给最外层统一报 500
+  }
+}
+
+/* DELETE /api/items/:id —— 删一个条目
+ *
+ * 依据：api-contract.md 第四节「4. DELETE /api/items/:id」。
+ *
+ * ⚠️ 这个 handler **没有请求体** —— 要删谁全在路径里，所以不用 readJsonBody。
+ *
+ * ⚠️ 和 PATCH 一个关键区别：**"不存在"要报 404，不能当成功**。
+ *    理由见契约：把 id 传错了（多打一个空格）却显示"删除成功"，
+ *    用户以为删了、其实没删 —— 那条数据下次还会冒出来。
+ *    报 404 顺带告诉前端"你手里这条已经不在库里了"，它可以据此刷新列表。
+ */
+async function handleDeleteItem(req, res, id) {
+  try {
+    const deleted = await itemsRepository.removeItem(id)
+
+    /* `null` = 数据库说"影响 0 行" = 没这条 id（不是异常，是正常结果） */
+    if (deleted == null) {
+      console.log('[api] DELETE /api/items 未命中', JSON.stringify({ id }))
+      return sendErr(res, 404, 'NOT_FOUND', `没有找到 id 为「${id}」的条目，它可能已经被删了`)
+    }
+
+    /* 响应按契约：只回被删的 id，不回整行。
+       （删掉的东西没必要再给前端一份 —— 它要做的是把本地那条也划掉。） */
+    console.log('[api] DELETE /api/items 成功', JSON.stringify({ id }))
+    return sendOk(res, { deleted: id })
+  } catch (err) {
+    console.log('[api] DELETE /api/items 失败', JSON.stringify({ id, detail: err.message }))
+    throw err // 交给最外层统一报 500
+  }
+}
+
 /* ── 路由 ─────────────────────────────────────────────────────────── */
+
+/** 把「路径模式」和真实路径比对。
+ *
+ *  模式里的 `:xxx` 是**参数占位**（如 `/api/items/:id`），命中时把值取出来。
+ *
+ *  为什么不直接用字符串相等：Day 22 加的 PATCH/DELETE 把 id 放在**路径里**
+ *  （`/api/items/b01`），而 id 是变长的 —— 没法枚举成一堆常量字符串。
+ *  做法很朴素：按 `/` 切成段，**段数必须一样**，然后逐段比；
+ *  占位段捕获值，其余段必须字面相等。
+ *
+ *  ⚠️ 段数校验不能省：少了它，`/api/items` 会被 `/api/items/:id` 匹配上，
+ *     把一个空字符串当成 id 传下去（然后拿着空 id 去查库）。
+ *  ⚠️ 捕获的值要 decodeURIComponent：id 里万一带了需要转义的字符（中文、空格），
+ *     不解码就会带着 %XX 去查，永远查不到。
+ *
+ *  @returns 命中时返回参数对象（如 `{ id: 'b01' }`），不中返回 `null` */
+function matchRoute(pattern, pathname) {
+  const pSeg = pattern.split('/')
+  const aSeg = pathname.split('/')
+  if (pSeg.length !== aSeg.length) return null
+
+  const params = {}
+  for (let i = 0; i < pSeg.length; i++) {
+    if (pSeg[i].startsWith(':')) {
+      if (!aSeg[i]) return null // 占位段是空的（如 `/api/items/`）→ 不算命中
+      params[pSeg[i].slice(1)] = decodeURIComponent(aSeg[i])
+    } else if (pSeg[i] !== aSeg[i]) {
+      return null
+    }
+  }
+  return params
+}
 
 /* 每条路径都认"带 /api 前缀"和"不带"两种写法 —— 网关是否把前缀透传给函数
    各环境配置不同，两个都认就不用担心这个问题。 */
 const ROUTES = [
-  { path: ['/', '/api/health'],         method: 'GET',  fn: (res) => handleHealth(res) },
-  { path: ['/api/items', '/items'],     method: 'GET',  fn: (res, url) => handleItems(res, url) },
+  { paths: ['/', '/api/health'],             method: 'GET',   fn: (res) => handleHealth(res) },
+  { paths: ['/api/items', '/items'],         method: 'GET',   fn: (res, url) => handleItems(res, url) },
   // 同一个路径、不同方法：读是 GET，写是 POST。⚠️ 路由按 method 匹配，两条不打架。
-  { path: ['/api/items', '/items'],     method: 'POST', fn: (res, url, req) => handleCreateItem(req, res) },
-  { path: ['/api/history', '/history'], method: 'GET',  fn: (res, url) => handleHistory(res, url) },
+  { paths: ['/api/items', '/items'],         method: 'POST',  fn: (res, url, req) => handleCreateItem(req, res) },
+  /* Day 22：id 在路径里。matchRoute 把 `:id` 取出来，作为第 4 个参数交给 handler。
+     ⚠️ 这条和上面的 POST 是**不同方法**，路由不会串。 */
+  { paths: ['/api/items/:id', '/items/:id'], method: 'PATCH',  fn: (res, url, req, params) => handleUpdateItem(req, res, params.id) },
+  { paths: ['/api/items/:id', '/items/:id'], method: 'DELETE', fn: (res, url, req, params) => handleDeleteItem(req, res, params.id) },
+  { paths: ['/api/history', '/history'],     method: 'GET',   fn: (res, url) => handleHistory(res, url) },
 ]
 
 const server = http.createServer(async (req, res) => {
@@ -151,18 +266,34 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Accept',
     })
     return res.end()
   }
 
   try {
-    const hit = ROUTES.find((r) => r.method === req.method && r.path.includes(url.pathname))
+    /* 找路由：同一路径可能挂多个方法，所以 method 也要对上。
+       命中时顺便把路径参数（`:id` 这类）一起捞出来。 */
+    let hit = null
+    let params = {}
+    for (const r of ROUTES) {
+      if (r.method !== req.method) continue
+      for (const p of r.paths) {
+        const m = matchRoute(p, url.pathname)
+        if (m) {
+          hit = r
+          params = m
+          break
+        }
+      }
+      if (hit) break
+    }
+
     if (!hit) {
       return sendErr(res, 404, 'NOT_FOUND', `没有这个接口：${req.method} ${url.pathname}`)
     }
-    await hit.fn(res, url, req)
+    await hit.fn(res, url, req, params)
   } catch (err) {
     console.error('[api] 处理失败', err)
     const detail = err && err.message ? err.message : '未知错误'

@@ -97,7 +97,34 @@
 
 ---
 
-## 4. 推荐结果加「去平台搜」的跳转入口   ✅ **已做（2026-10-09）**
+## 4. 首页背景换成 Galaxy 星系层   ✅ **已做（2026-10-14）**
+
+**为什么换**：旧粒子层（ParticleNebula）爸爸看了说「太亮、太糊」——
+additive 叠加 + 每个粒子拖大光晕，密集处糊成一片。
+
+**新背景**：`src/components/Galaxy.jsx`（three.js 螺旋星系：核球 + 三条旋臂 + 远晕）。
+props 是爸爸定的，写在 App.jsx 里：`density 1 / glowIntensity 0.3（压光晕治糊）/
+flareIntensity 1 / starSpeed 0.5 / mouseRepulsion（鼠标排斥）/ clickWarp（点击冲击波）/
+saturation 0.67（降饱和）/ starSize 1.5`。
+
+**沿用的工程约束**（和旧层一样，别破坏）：
+- 懒加载：2.5 秒后才挂载，three 走独立 chunk，**首屏 276KB 不变**
+- 三道闸：`prefers-reduced-motion` 不渲染 / 无 WebGL 静默退出 / 切后台暂停
+- 画布 `position:fixed; z-index:0; pointer-events:none` —— 点事件的交互挂在 window 上，不挡内容
+- NebulaCanvas 保留作底色 + 无 WebGL 兜底，**两层叠加不是二选一**
+
+**已验证**：vite build 通过（three 695KB 独立 chunk、首屏 HTML 零 preload）；
+浏览器打开控制台零报错；Galaxy canvas 带 `data-engine="three.js r180"` 正常渲染。
+
+**遗留**：`src/components/ParticleNebula.jsx` 没人引用了，文件还在（未提交，删了不可恢复）——
+爸爸确认新背景满意后再删。
+
+**调参入口**：除 `density` 外所有 props 改了即时生效（热更新 uniform）；
+`density` 要重建场景。值都在 App.jsx 的 `<Galaxy ... />` 上。
+
+---
+
+## 5. 推荐结果加「去平台搜」的跳转入口   ✅ **已做（2026-10-09）**
 
 **已实现**：卡片上的平台徽标改成**可点链接**（新窗口打开，`↗` 提示会离开本页）。
 逻辑在 **`src/lib/platformLink.js`** —— 美团 `https://www.meituan.com/s/<店名>`、

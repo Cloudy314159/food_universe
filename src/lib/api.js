@@ -202,3 +202,29 @@ export async function fetchHealth() {
   const data = await requestJson('/api/health')
   return { service: data?.service ?? '未知', ms: Date.now() - t0 }
 }
+
+/* ── 接口 ⑤：删除一个条目（Day 22 接上，页面 2「我的清单」用）────────── */
+
+/**
+ * 把某一条从云端删掉。
+ * @param {string} id 要删的条目 id
+ * @returns `{ deleted: string }` —— 契约规定只回被删的 id，不回整行
+ *
+ * ⚠️ 失败时抛 Error，`err.code` 是服务端给的码。调用方要分清两类：
+ *
+ *   · **`NOT_FOUND`** —— 这条**已经不在云端了**（别处删过、或者 id 传错了）。
+ *     ⚠️ 这个要**当成功处理**：用户的目标是"让这条不存在"，而它已经不存在了 ——
+ *     目标达成了。当成失败拦着用户没有任何意义（他点第二遍还是 404）。
+ *
+ *   · 其余（`NETWORK` / `TIMEOUT` / `INTERNAL_ERROR` …）—— **真失败**。
+ *     这时本地那条**绝对不能删** —— 本地删了、云端还在，刷新页面它就复活了。
+ *
+ * 依据：api-contract.md 第四节「4. DELETE /api/items/:id」。
+ */
+export async function deleteItem(id) {
+  /* id 是数据库来的（UUID 或者 b01 这种稳定 id），拼进路径理论上没风险；
+     还是 encodeURIComponent 一下 —— 万一将来 id 格式变了（带空格、中文），
+     也不会拼出一个坏 URL 去查库。 */
+  const data = await requestJson(`/api/items/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  return { deleted: data?.deleted ?? id }
+}

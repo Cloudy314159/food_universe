@@ -721,14 +721,91 @@ body {
   min-width: 0;
 }
 
+/* ── 标题上方的小标签（Day 21）────────────────────────────────────────
+   「实时推荐引擎已就绪」/「正在连接美食宇宙…」。
+   ⚠️ 它不是装饰：绿色只在**接口真的通了**的时候亮（见 Home.jsx 的 engine）。
+      连不上时整条标签根本不渲染 —— 宁可什么都不说，也不写一句假的「已就绪」。 */
+.page-eyebrow {
+  margin-bottom: 10px;
+}
+
+.engine-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid rgba(0, 212, 170, 0.35);
+  border-radius: 999px;
+  background: rgba(0, 212, 170, 0.08);
+  /* 与 --success 同色，在这层深底上约 10:1（12px 小字够用） */
+  color: var(--success);
+  font-size: 12px;
+  letter-spacing: 0.3px;
+}
+
+.engine-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(0, 212, 170, 0.8);
+}
+
+/* 加载中：换成中性色。绝不用「就绪」的绿去糊弄还在连的过程。 */
+.engine-badge.is-waiting {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink-3);
+}
+
+.engine-badge.is-waiting::before {
+  background: var(--ink-3);
+  box-shadow: none;
+  animation: enginePulse 1.4s ease-in-out infinite;
+}
+
+@keyframes enginePulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
 .page-header .page-title {
   margin: 0;
-  font-size: clamp(24px, 5vw, 32px);
+  /* Day 21：原来上限 32px，两行叠起来偏小、撑不起"海报感"。
+     放宽到 40px（下界也从 24px 提到 28px），窄屏仍不会挤。 */
+  font-size: clamp(28px, 6.5vw, 40px);
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.15;
   letter-spacing: 0.5px;
   color: var(--ink);
   text-shadow: 0 0 24px rgba(255, 215, 0, 0.15);
+}
+
+/* 标题第二行：渐变字（Day 21）
+   ⚠️ 用 background-clip:text 把渐变"剪"进字的形状里，所以文字本身设成透明 ——
+      但 DOM 里**文字是真的**：屏幕阅读器照读、Ctrl+F 也能搜到。
+   ⚠️ 渐变最暗的那段也得够亮：紫 #b47cff 躺在面板上仍有 6.48:1，
+      三段全部 ≥4.5:1（大字其实只要 3:1）—— 是算过的，不是估的。
+   ⚠️ 用 drop-shadow 而不是 text-shadow：透明文字上画 text-shadow 是看不见的。 */
+.page-title .title-glow {
+  display: block;
+  text-shadow: none; /* 父级那层金光别叠到渐变上，会发浑 */
+  background: linear-gradient(96deg, #ffb347 0%, #ff6fb5 52%, #b47cff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px rgba(255, 111, 181, 0.25));
+}
+
+/* 高对比度模式下系统会接管背景色 —— 那时"透明文字"就等于全看不见了。
+   回退成实色，宁可丢掉渐变，也不能让标题消失。 */
+@media (forced-colors: active) {
+  .page-title .title-glow {
+    background: none;
+    color: CanvasText;
+    filter: none;
+  }
 }
 
 .page-sub {
@@ -814,6 +891,17 @@ body {
 /* ── 浏览区 ── */
 .browse-block {
   margin-top: 26px;
+}
+
+/* 「筛选星云」区块标题（Day 21）
+   原来这块没有标题，三行筛选直接怼上来，看不出是一整块。
+   字号沿用已有的 14px，不新增字号档位。 */
+.browse-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--ink-2);
 }
 
 .axis-rows {
@@ -1610,6 +1698,11 @@ body {
 }
 
 .magazine-card-delete {
+  display: inline-flex;
+  align-items: center;
+  /* 触控要求：可点控件不小于 44×44 —— 原来只有 8+8+文字 ≈ 37px，Day 22 补上。
+     用 min-height 而不是 height：文字放大或换行时还能撑开，不会被裁掉。 */
+  min-height: 44px;
   padding: 8px 16px;
   border: 1px solid rgba(255, 107, 107, 0.3);
   border-radius: 10px;
@@ -1624,6 +1717,91 @@ body {
 .magazine-card-delete:hover {
   background: rgba(255, 107, 107, 0.1);
   border-color: var(--danger);
+}
+
+/* ── 删除二次确认（Day 22）───────────────────────────────────────────────
+   一组按钮，**DOM 恒定、只切显示**（为什么这么写见 List.jsx 里的说明）。
+   藏起来的两个用 display:none —— 它同时把元素移出 Tab 顺序，
+   所以不存在"看不见却还能 Tab 到"的问题。 */
+
+.card-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px; /* 相邻控件间距不小于 8px（项目约定） */
+}
+
+.card-delete-ask,
+.card-delete-cancel {
+  display: none;
+}
+
+.card-delete.is-confirming .card-delete-ask,
+.card-delete.is-confirming .card-delete-cancel {
+  display: inline-flex;
+  align-items: center;
+}
+
+.card-delete-ask {
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.card-delete-cancel {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.card-delete-cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+
+/* 确认态：那个按钮变**实心红** —— 一眼看得出"这一下是真的会删掉" */
+.card-delete.is-confirming .magazine-card-delete {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.card-delete.is-confirming .magazine-card-delete:hover {
+  background: #ff3b3b;
+  border-color: #ff3b3b;
+}
+
+/* 页面级提示条（删失败 / 云端本来就没有）。
+   淡出走 opacity、元素留到最后一刻 —— 项目里统一的反馈做法。 */
+.card-notice {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  transition: opacity 0.5s ease;
+}
+
+.card-notice.ok {
+  border: 1px solid rgba(0, 245, 255, 0.3);
+  background: rgba(0, 245, 255, 0.08);
+  color: var(--accent-cyan);
+}
+
+.card-notice.err {
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  background: rgba(255, 90, 90, 0.1);
+  color: var(--danger);
+}
+
+.card-notice.is-fading {
+  opacity: 0;
 }
 
 .list-magazine-footer {

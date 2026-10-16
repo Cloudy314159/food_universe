@@ -76,4 +76,31 @@ function readBody(req, maxBytes = 64 * 1024) {
   })
 }
 
-module.exports = { sendOk, sendErr, send, parseLimit, readBody }
+/**
+ * 读请求体 + 解析成 JSON —— **写接口共用**（POST / PATCH）。
+ *
+ * 抽出来的理由：这两步（收流、解析）在 POST 和 PATCH 里一模一样，
+ * 连报错的中文文案都得一致（契约要求）。各写一份迟早会漂移 ——
+ * 比如 PATCH 那条把消息写成"请求体格式错误"，前端就得为同一件事认两种话。
+ *
+ * @returns `{ ok:true, payload }` 或 `{ ok:false, status, code, message }`
+ *   ⚠️ 失败时的形状和 lib/validate.js 的 `fail()` **故意一模一样** ——
+ *      handler 拿到只需要 `if (!r.ok) return sendErr(res, r.status, r.code, r.message)`，
+ *      不用分辨这个错是"读 body 阶段"还是"校验阶段"的。
+ */
+async function readJsonBody(req) {
+  let raw = ''
+  try {
+    raw = await readBody(req)
+  } catch {
+    return { ok: false, status: 400, code: 'INVALID_BODY', message: '请求体读取失败，请重试' }
+  }
+
+  try {
+    return { ok: true, payload: JSON.parse(raw) }
+  } catch {
+    return { ok: false, status: 400, code: 'INVALID_BODY', message: '请求体必须是 JSON 格式' }
+  }
+}
+
+module.exports = { sendOk, sendErr, send, parseLimit, readBody, readJsonBody }

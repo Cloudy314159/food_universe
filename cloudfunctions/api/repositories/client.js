@@ -158,4 +158,141 @@ async function insertRow(table, row, readbackSelect, readbackKey = 'name') {
   throw err
 }
 
-module.exports = { queryTable, insertRow }
+/**
+ * 改一行（PostgREST 的 PATCH）。Day 22 新增。
+ *
+ * @param {string} table  表名（**只允许代码里写死的字面量**）
+ * @param {string} id     改哪一行（按主键 `id` 等值匹配）
+ * @param {object} patch  要改的字段，键 = 数据库列名。**只放要改的列** ——
+ *                        没放的列数据库里原地不动，这就是"部分更新"。
+ * @param {string} [readbackSelect] 兜底回读时取哪些列
+ * @returns {Promise<object|null>} 改完之后的那一行；**`null` = 这个 id 不存在**
+ *
+ * ── ⚠️ 这个函数最容易踩的坑：改一个不存在的 id，数据库**不报错** ──────
+ * PostgREST 更新 0 行时返回的是 `200` + **空数组**，不是 404。
+ * 所以"到底改没改到"**只能靠"有没有回读到行"来判断，不能看 HTTP 状态码**。
+ *
+ * 空返回有两种可能，必须分开：
+ *   ① 这个 id 真的不存在            → 该报 404
+ *   ② id 存在，但平台没回 representation（`Prefer` 头没被支持）→ 其实改成功了
+ * 分不清就会把"改成功"错报成 404，或者反过来把"没这条"当成成功。
+ * 办法：空的时候**回读一次** —— 读得到就是 ②，读不到就是 ①。
+ * （Day 18 实测平台是支持 `Prefer: return=representation` 的，
+ *   所以正常路径走不到兜底那一步；留着它是为了防止平台行为变化。）
+ *
+ * ⚠️ 唯一约束冲突（改名字撞上别人）照旧抛 `err.pgCode === '23505'`，
+ *    由调用方决定翻成 409 还是别的 —— 这一层不做业务判断。
+ */
+async function updateRow(table, id, patch, readbackSelect) {
+  const url = new URL(`${REST_BASE}/${table}`)
+  // PostgREST 的过滤语法：`?id=eq.<值>`。用 URLSearchParams 拼，值会被自动编码
+  url.searchParams.set('id', `eq.${id}`)
+
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${requireApiKey()}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      // 同 insertRow：不加这个头就只回一个空体，拿不到改完的那一行
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(patch),
+  })
+
+  const text = await res.text()
+
+  if (!res.ok) {
+    const err = new Error(`改 ${table} 失败：HTTP ${res.status} ${text.slice(0, 300)}`)
+    err.code = 'DB_WRITE_FAILED'
+    err.httpStatus = res.status
+    err.pgCode = normalizePgCode(parseJsonQuietly(text)?.code)
+    throw err
+  }
+
+  // 正常：回一个数组，里面是改完的那一行
+  const rows = parseJsonQuietly(text)
+  if (Array.isArray(rows) && rows.length > 0) return rows[0]
+
+  // 空 → 回读确认到底是"不存在"还是"平台没回 representation"（见上面的说明）
+  if (readbackSelect) {
+    const found = await queryTable(table, {
+      select: readbackSelect,
+      id: `eq.${id}`,
+      limit: '1',
+    })
+    if (Array.isArray(found) && found.length > 0) return found[0]
+  }
+
+  return null
+}
+
+/**
+ * 删一行（PostgREST 的 DELETE）。Day 22 新增。
+ *
+ * @param {string} table  表名（**只允许代码里写死的字面量**）
+ * @param {string} id     删哪一行（按主键 `id` 等值匹配）
+ * @param {string} [readbackSelect] 只用于"拿不到被删行"时的存在性回查（传了才会查）
+ * @returns {Promise<object|null>} 被删掉的那一行；**`null` = 这个 id 本来就不存在**
+ *
+ * ── ⚠️ 这里跟 updateRow 的兜底**方向相反**，别照着抄 ────────────────
+ * 更新是"改完再读一次" —— 读得到就是改成功了，逻辑是顺的。
+ * 删除不行：**删完之后本来就查不到了**，"查不到"既可能是删成功、
+ * 也可能是本来就没有，靠回读**分不出这两种**。
+ *
+ * 所以判断删没删到，只能靠 `Prefer: return=representation` 让数据库
+ * **把删掉的那一行回给我们**（这就是它在这个函数里唯一的作用）：
+ *   · 回了一个数组且有行  → 真删掉了，把那行带回去
+ *   · 回了一个空数组      → PostgREST 说"影响 0 行" = 没这条 id
+ *   · 回的**不是数组**（平台没支持那个头，回了 204 空体）→ 情况不明
+ *
+ * 最后那种情况只能**再查一次**来兜：
+ *   · 还查得到 → 删除根本没生效 → 抛错（不能假装成功）
+ *   · 查不到   → 确实没了；但拿不到原行内容，就回一个只有 `id` 的对象
+ *                （调用方只需要知道"删掉了"，契约的响应本来也只回 id）
+ */
+async function deleteRow(table, id, readbackSelect) {
+  const url = new URL(`${REST_BASE}/${table}`)
+  url.searchParams.set('id', `eq.${id}`)
+
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${requireApiKey()}`,
+      Accept: 'application/json',
+      Prefer: 'return=representation',
+    },
+  })
+
+  const text = await res.text()
+
+  if (!res.ok) {
+    const err = new Error(`删 ${table} 失败：HTTP ${res.status} ${text.slice(0, 300)}`)
+    err.code = 'DB_WRITE_FAILED'
+    err.httpStatus = res.status
+    err.pgCode = normalizePgCode(parseJsonQuietly(text)?.code)
+    throw err
+  }
+
+  const rows = parseJsonQuietly(text)
+
+  // 正常：回了数组 —— 有行 = 删掉了；空数组 = 没这条
+  if (Array.isArray(rows)) return rows.length > 0 ? rows[0] : null
+
+  // 非数组（平台没回 representation）→ 只能回查一次来分辨（见函数头说明）
+  if (readbackSelect) {
+    const still = await queryTable(table, { select: readbackSelect, id: `eq.${id}`, limit: '1' })
+    if (Array.isArray(still) && still.length > 0) {
+      const err = new Error(`删 ${table} 没生效：id=${id} 仍然查得到`)
+      err.code = 'DB_DELETE_NOT_APPLIED'
+      throw err
+    }
+    return { id }
+  }
+
+  const err = new Error(`删 ${table} 之后无法确认结果（平台没回被删的行）`)
+  err.code = 'DB_DELETE_UNCERTAIN'
+  throw err
+}
+
+module.exports = { queryTable, insertRow, updateRow, deleteRow }

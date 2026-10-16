@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   adoptServerData,
   appendHistory,
@@ -13,7 +13,7 @@ import {
   setFilter,
   validateNewItem,
 } from './lib/storage.js'
-import { createItem, fetchHistory, fetchItems } from './lib/api.js'
+import { createItem, deleteItem, fetchHistory, fetchItems } from './lib/api.js'
 import { applyFilter, collectTags } from './lib/filter.js'
 import { describeError, fetchNextResult } from './lib/drawService.js'
 import { SPICY_ANY, TAG_PRESETS, VIEW_STATE } from './lib/constants.js'
@@ -23,6 +23,16 @@ import Add from './pages/Add.jsx'
 import History from './pages/History.jsx'
 import Check from './pages/Check.jsx'
 import NebulaCanvas from './components/NebulaCanvas.jsx'
+
+/* 真三维星系层（three.js）—— **动态 import，懒加载**。
+   ⚠️ 这里写 `import(...)` 而不是顶部静态 import，就是为了让 three.js
+      那 100KB+ 走独立 chunk：只有这个组件真正渲染时才下载，
+      首屏 HTML 里连 preload link 都不会有（构建时会验证这一点）。
+
+   2026-10-14：背景从 ParticleNebula（旧粒子层）换成 Galaxy。
+   换的原因：旧层「太亮、太糊」—— additive 叠加 + 大光晕，密集处糊成一片。
+   新层的 props 是爸爸定的：glowIntensity 0.3 压光晕、starSize 1.5 不糊团。 */
+const Galaxy = lazy(() => import('./components/Galaxy.jsx'))
 
 // 四个页面。路由方式见 TECH_DESIGN.md §8.2：
 // 用 hash 路由，因为 PRD 的 J3 要求「不经过首页刷新直接进入历史记录页」
@@ -117,6 +127,20 @@ export default function App() {
   /* 演示状态（地址栏 ?demo=）。放成 state 而不是每次读地址栏 ——
      这样页脚那个下拉一改，界面立刻跟着变。 */
   const [demoState, setDemoState] = useState(readDemoState)
+
+  /* 星系层**延迟挂载**（three.js 走独立 chunk）。
+     为什么等 2.5 秒：首屏最重要的是「马上能看到推荐结果」。
+     接口请求 + 渲染完之前，那 100KB+ 一个字节都不该来抢带宽。
+     2.5 秒是留足"内容已经出来了"的时间，又不至于让人等到忘记有这回事。
+
+     ⚠️ 这里用「到点才渲染」而不是「渲染时再 import」——
+         React.lazy 在组件**挂载那一刻**就开始下载了。
+         想真的晚下载，必须先晚挂载。 */
+  const [showGalaxy, setShowGalaxy] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setShowGalaxy(true), 2500)
+    return () => clearTimeout(timer)
+  }, [])
 
   /* 「返回上一页」用：记住上一个页面是哪一个。
      ⚠️ 不用 history.back() —— 用户直接打开 #/list（没有上一页）时，
@@ -296,10 +320,39 @@ export default function App() {
   }, [hash, draw, boot.status])
 
   // ── 四个操作。改完数据立刻 sync，界面马上跟着变（C3 要求删除后数量立即更新）──
+
+  /* 删除一条（**Day 22 改过**：从"只删本地"变成"先删云端、成了再删本地"）。
+
+     ⚠️ 为什么顺序不能反 —— 这是今天最容易写错的地方：
+        改成先删本地再删云端的话，万一云端那步失败（断网、超时），
+        本地那条已经没了：用户看到"删掉了"，**刷新页面它又回来了**
+        （因为刷新会从云端重新灌一份数据下来）。
+        "删了又复活"比当场报个错难查得多 —— 报错至少用户知道没删成。
+
+     ⚠️ `NOT_FOUND` 当成功处理：云端说"没这条" —— 而"让这条不存在"
+        正是用户要的结果，已经达成了。这时把本地那条也清掉，
+        不该拿一个 404 拦着用户（他再点一次还是 404）。
+
+     ⚠️ 返回值是给界面看的：`{ ok:false, message }` 时页面要显示这条消息。
+        以前这个函数不返回东西（本地删除必成功），现在会失败 —— 必须让上层知道。 */
   const handleRemove = useCallback(
-    (id) => {
-      removeItem(id)
-      sync()
+    async (id) => {
+      try {
+        await deleteItem(id)
+        removeItem(id)
+        sync()
+        return { ok: true }
+      } catch (err) {
+        if (err?.code === 'NOT_FOUND') {
+          // 云端已经没有这条了 —— 目标达成，本地顺带清掉
+          removeItem(id)
+          sync()
+          return { ok: true, alreadyGone: true }
+        }
+        // 打日志：真出问题时控制台能看到是哪一步断的（网络 / 接口 / 权限）
+        console.error('[remove] 删云端失败', err)
+        return { ok: false, message: err?.message || '没能连上服务器，这条没删掉' }
+      }
     },
     [sync],
   )
@@ -472,6 +525,29 @@ export default function App() {
   return (
     <>
       <NebulaCanvas />
+      {/* 星系层叠在星云之上、内容之下（z-index 都是 0，靠 DOM 顺序分层）。
+          到点才挂载 → 那 100KB 的 three.js 才会开始下载。
+
+          props 是爸爸 2026-10-14 定的（治「太亮太糊」）：
+            · glowIntensity 0.3 → 光晕只留三成，不糊
+            · starSize      1.5 → 星星小，密处不糊团
+            · saturation   0.67 → 颜色降一档饱和，不艳
+            · mouseRepulsion    → 鼠标把附近星星轻轻推开
+            · clickWarp         → 点一下，一圈冲击波扩散 */}
+      {showGalaxy && (
+        <Suspense fallback={null}>
+          <Galaxy
+            density={1}
+            glowIntensity={0.3}
+            flareIntensity={1}
+            starSpeed={0.5}
+            mouseRepulsion
+            clickWarp
+            saturation={0.67}
+            starSize={1.5}
+          />
+        </Suspense>
+      )}
       <div className="app">
       <header className="topbar">
         <span className="brand">想吃啥</span>

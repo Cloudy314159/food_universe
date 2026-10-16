@@ -12,7 +12,7 @@
  * ═══════════════════════════════════════════════════════════════════
  */
 
-const { queryTable, insertRow } = require('./client.js')
+const { queryTable, insertRow, updateRow, deleteRow } = require('./client.js')
 
 const TABLE = 'items'
 
@@ -46,4 +46,37 @@ async function createItem(fields) {
   return insertRow(TABLE, fields, COLUMNS, 'name')
 }
 
-module.exports = { listItems, createItem }
+/**
+ * 改一条（Day 22 新增）。
+ * @param {string} id          改哪一条（主键）
+ * @param {object} fields      要改的字段，**只放这次真要改的那几个** ——
+ *                             没放的列在数据库里原地不动（部分更新）。
+ *                             由 `lib/validate.js` 的 `validateItemPatch` 产出。
+ * @returns {Promise<object|null>} 改完之后的那一行；**`null` = 这个 id 不存在**
+ *
+ * ⚠️ `null` 和"抛错"是两回事，调用方要分开处理：
+ *    · `null`   → id 不存在      → 接口层该回 **404**
+ *    · 抛 `23505` → 改的名字撞了别人 → 接口层该回 **409**
+ *    （为什么"不存在"不是抛错：它是**正常的**查询结果，不是异常。）
+ */
+async function updateItem(id, fields) {
+  return updateRow(TABLE, id, fields, COLUMNS)
+}
+
+/**
+ * 删一条（Day 22 新增）。
+ * @param {string} id 删哪一条（主键）
+ * @returns {Promise<object|null>} 被删掉的那一行；**`null` = 这个 id 本来就不存在**
+ *
+ * ⚠️ 跟 `updateItem` 一样，`null` 是**正常结果**不是异常 ——
+ *    "要删的东西不在"由接口层翻成 **404**，别在这一层抛错。
+ *
+ * ⚠️ 删条目会**连带影响 history 表**（外键 `ON DELETE SET NULL`）：
+ *    那些历史记录的 `item_id` 会变成 `NULL`，但 `item_name` 快照原样保留 ——
+ *    所以历史页照样显示得出"那天抽的是啥"（PRD J4，这是设计好的行为，不是数据坏了）。
+ */
+async function removeItem(id) {
+  return deleteRow(TABLE, id, COLUMNS)
+}
+
+module.exports = { listItems, createItem, updateItem, removeItem }
