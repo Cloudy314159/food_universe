@@ -295,9 +295,27 @@ const server = http.createServer(async (req, res) => {
     }
     await hit.fn(res, url, req, params)
   } catch (err) {
-    console.error('[api] 处理失败', err)
-    const detail = err && err.message ? err.message : '未知错误'
-    return sendErr(res, 500, 'INTERNAL_ERROR', `服务端出错：${detail}`)
+    /* ⚠️ Day 23 改的：这里**不再把 err.message 透给用户**。
+       改之前是 `服务端出错：${err.message}`，而那条 message 长这样：
+         `查 items 失败：HTTP 500 {"code":"DATABASE_28P01","message":"..."}`
+       —— HTTP 状态码 + 英文 + 数据库原始响应体，全印在用户界面上。
+       那是给我们自己排错看的，不是给用户看的。
+
+       现在分两路走：
+         · **用户**拿到一句人话，不带任何技术细节
+         · **完整信息**（含 err.detail / pgCode）写进服务端日志 —— 控制台「日志」页能查
+       前端仍然能拿到 code（INTERNAL_ERROR），需要的话可以据此做分支。 */
+    console.error(
+      '[api] 处理失败',
+      JSON.stringify({
+        code: err?.code || 'UNKNOWN',
+        httpStatus: err?.httpStatus,
+        pgCode: err?.pgCode,
+        detail: err?.detail || err?.message || '未知错误',
+      })
+    )
+    if (err?.stack) console.error(err.stack)
+    return sendErr(res, 500, 'INTERNAL_ERROR', '服务器开小差了，稍后再试一次')
   }
 })
 

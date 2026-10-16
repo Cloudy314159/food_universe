@@ -43,6 +43,31 @@ function parseJsonQuietly(text) {
   }
 }
 
+/** 造一个「**人话给用户、细节给日志**」的数据库错误。Day 23 新增。
+ *
+ *  ── 为什么要拆成两个字段 ────────────────────────────────────────────
+ *  改之前，数据库出错时抛的错长这样：
+ *      `查 items 失败：HTTP 500 {"code":"DATABASE_28P01","message":"password authentication failed"}`
+ *  而它会**一路透到用户界面上** —— index.js 最外层把 err.message 拼进 500 的提示里。
+ *  于是用户看到的是：HTTP 状态码 + 英文 + 数据库原始响应体。
+ *  那是给排错的人看的，不是给用产品的人看的。
+ *
+ *  现在分开存：
+ *    · `err.message` —— 一句人话（万一透出去也不丢人）
+ *    · `err.detail`  —— 完整技术细节（哪张表、状态码、响应体前 300 字），**只进服务端日志**
+ *    · `err.pgCode`  —— 剥过网关前缀的 SQLSTATE，上层拿它翻 409 / 400（**这条链不能断**）
+ *
+ *  ⚠️ 别把 detail 拼回 message —— 那样这一版就白改了。
+ */
+function dbError(code, action, table, res, text) {
+  const err = new Error(`数据库${action}没有成功`)
+  err.code = code
+  err.httpStatus = res.status
+  err.pgCode = normalizePgCode(parseJsonQuietly(text)?.code)
+  err.detail = `${action} ${table}：HTTP ${res.status} ${String(text).slice(0, 300)}`
+  return err
+}
+
 function requireApiKey() {
   const apiKey = process.env.TCB_API_KEY
   if (!apiKey) {
@@ -80,15 +105,15 @@ async function queryTable(table, params) {
 
   const text = await res.text()
   if (!res.ok) {
-    const err = new Error(`查 ${table} 失败：HTTP ${res.status} ${text.slice(0, 300)}`)
-    err.code = 'DB_QUERY_FAILED'
-    err.pgCode = normalizePgCode(parseJsonQuietly(text)?.code)
-    throw err
+    throw dbError('DB_QUERY_FAILED', '查询', table, res, text)
   }
 
   const rows = parseJsonQuietly(text)
   if (rows === null) {
-    throw new Error(`查 ${table} 返回的不是 JSON：${text.slice(0, 200)}`)
+    const err = new Error('数据库返回的内容看不懂')
+    err.code = 'DB_QUERY_BAD_RESPONSE'
+    err.detail = `查询 ${table} 返回的不是 JSON：${String(text).slice(0, 200)}`
+    throw err
   }
   return rows
 }
@@ -129,11 +154,7 @@ async function insertRow(table, row, readbackSelect, readbackKey = 'name') {
 
   if (!res.ok) {
     // 错误体是 JSON：{ code, message, requestId }；code 是 SQLSTATE（可能带 DATABASE_ 前缀）
-    const err = new Error(`写 ${table} 失败：HTTP ${res.status} ${text.slice(0, 300)}`)
-    err.code = 'DB_WRITE_FAILED'
-    err.httpStatus = res.status
-    err.pgCode = normalizePgCode(parseJsonQuietly(text)?.code)
-    throw err
+    throw dbError('DB_WRITE_FAILED', '写入', table, res, text)
   }
 
   // 正常：PostgREST 回一个数组，里面是插入的行
@@ -153,8 +174,9 @@ async function insertRow(table, row, readbackSelect, readbackKey = 'name') {
     }
   }
 
-  const err = new Error(`写 ${table} 之后没能读回那一行`)
+  const err = new Error('数据写进去了，但没能确认写成了什么样子')
   err.code = 'DB_WRITE_READBACK_FAILED'
+  err.detail = `写入 ${table} 之后没能回读到那一行`
   throw err
 }
 
@@ -203,11 +225,7 @@ async function updateRow(table, id, patch, readbackSelect) {
   const text = await res.text()
 
   if (!res.ok) {
-    const err = new Error(`改 ${table} 失败：HTTP ${res.status} ${text.slice(0, 300)}`)
-    err.code = 'DB_WRITE_FAILED'
-    err.httpStatus = res.status
-    err.pgCode = normalizePgCode(parseJsonQuietly(text)?.code)
-    throw err
+    throw dbError('DB_WRITE_FAILED', '修改', table, res, text)
   }
 
   // 正常：回一个数组，里面是改完的那一行
@@ -267,11 +285,7 @@ async function deleteRow(table, id, readbackSelect) {
   const text = await res.text()
 
   if (!res.ok) {
-    const err = new Error(`删 ${table} 失败：HTTP ${res.status} ${text.slice(0, 300)}`)
-    err.code = 'DB_WRITE_FAILED'
-    err.httpStatus = res.status
-    err.pgCode = normalizePgCode(parseJsonQuietly(text)?.code)
-    throw err
+    throw dbError('DB_WRITE_FAILED', '删除', table, res, text)
   }
 
   const rows = parseJsonQuietly(text)
@@ -283,15 +297,17 @@ async function deleteRow(table, id, readbackSelect) {
   if (readbackSelect) {
     const still = await queryTable(table, { select: readbackSelect, id: `eq.${id}`, limit: '1' })
     if (Array.isArray(still) && still.length > 0) {
-      const err = new Error(`删 ${table} 没生效：id=${id} 仍然查得到`)
+      const err = new Error('这条没有删掉，请再试一次')
       err.code = 'DB_DELETE_NOT_APPLIED'
+      err.detail = `删除 ${table} 没生效：id=${id} 仍然查得到`
       throw err
     }
     return { id }
   }
 
-  const err = new Error(`删 ${table} 之后无法确认结果（平台没回被删的行）`)
+  const err = new Error('删除结果没能确认，刷新页面看看还在不在')
   err.code = 'DB_DELETE_UNCERTAIN'
+  err.detail = `删除 ${table} 之后拿不到被删的行，无法确认结果`
   throw err
 }
 

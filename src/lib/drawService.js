@@ -79,17 +79,58 @@ export async function fetchNextResult({ bag, pool, lastResultId, signal }) {
   await delay(readFlag('slow') ? SLOW_DELAY_MS : 0, signal)
 
   if (readFlag('fail')) {
-    throw new Error('网络连接失败')
+    /* 人工开关 `?fail=1` 模拟出来的失败。
+       ⚠️ Day 23：给它带上 `code = 'NETWORK'` —— 让下面 describeError 能按码识别，
+          而不是靠"消息里有没有'网络'两个字"。 */
+    const e = new Error('连不上服务器，检查一下网络。')
+    e.code = 'NETWORK'
+    throw e
   }
 
   return drawNext(bag, pool, lastResultId)
 }
 
-/* 界面上要显示的失败原因。抽成一个函数，是为了让"哪种错给哪句话"集中在一处，
-   以后接 API 时会冒出各种错误码，都在这里翻译。 */
+/* 界面上要显示的失败原因 —— **"哪种错给哪句话"的唯一出口**。
+   ─────────────────────────────────────────────────────────────────────
+   ⚠️ Day 23 改过判断依据：以前是**看消息里有没有"网络"两个字**
+      （`msg.includes('网络')`）—— 那是"靠文案判类型"：
+      哪天文案改一个字，这个分支就**静默失效**，用户拿到的是不相关的话。
+      而且那时它只认识"网络"一种错，其余全糊成"切换失败"。
+
+   现在按 `err.code` 判 —— code 是前后端约定的**契约**（写在 api-contract.md 里），
+   比文案稳定得多。三类错各给各的话：
+
+     · 输入错（INVALID_* / DUPLICATE_NAME / NOT_FOUND）
+       → 服务端已经写了中文人话（"名称长度需要在 1–20 字之间"这种），直接用它的
+     · 网络错（NETWORK / TIMEOUT）
+       → 明确告诉用户"这是网络的事，不是你的操作问题"，且要能重试
+     · 服务端错（INTERNAL_ERROR / BAD_RESPONSE）
+       → 说人话兜底，**不暴露任何技术细节**（服务端那边也不会再透技术细节过来）
+
+   兜底用 `msg`：契约规定服务端的 message 一律是中文人话，
+   所以"不认识的 code + 有消息"时，它给的话仍然比我们编的准。
+
+   ⚠️ 以后后端加新错误码，**优先在这里加一条映射**，别让它掉进兜底。 */
 export function describeError(err) {
   if (!err) return '切换失败，请再试一次。'
-  const msg = String(err.message || err)
-  if (msg.includes('网络')) return '网络好像出问题了，没能切换成功。'
-  return '切换失败，请再试一次。'
+
+  const code = String(err.code || '')
+  const msg = String(err.message || '')
+
+  // ① 网络错：再分"完全没连上"和"连上了但太久没回应" —— 用户能做的事不一样
+  if (code === 'NETWORK') return '连不上服务器，检查一下网络再试。'
+  if (code === 'TIMEOUT') return '服务器响应有点慢，等会儿再试一次。'
+
+  // ② 服务端错：说人话，不带技术细节
+  if (code === 'INTERNAL_ERROR' || code === 'BAD_RESPONSE') {
+    return '服务器开小差了，稍后再试一次。'
+  }
+
+  // ③ 输入错：服务端给的就是中文人话，直接用它
+  if (code.startsWith('INVALID_') || code === 'DUPLICATE_NAME' || code === 'NOT_FOUND') {
+    return msg || '这次操作没成功，换个方式再试。'
+  }
+
+  // 兜底（含"不认识的 code"和"联调时后端直接抛的错"）
+  return msg || '切换失败，请再试一次。'
 }

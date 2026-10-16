@@ -98,15 +98,21 @@ async function requestJson(path, { method = 'GET', body, signal, timeoutMs = TIM
   }
 
   if (!resBody || typeof resBody.ok !== 'boolean') {
-    const e = new Error(`服务器返回了预期之外的内容（HTTP ${res.status}）`)
+    /* ⚠️ Day 23：这句 message 会**直接显示在界面上**，所以只说人话。
+       改之前是 `服务器返回了预期之外的内容（HTTP ${res.status}）` ——
+       用户看不懂"HTTP 502"是什么意思，看了也不知道该干嘛。
+       技术细节挪进 `code` / `httpStatus`：排查时控制台能看到，界面上不出现。 */
+    const e = new Error('服务器返回了看不懂的内容，稍后再试一次')
     e.code = 'BAD_RESPONSE'
+    e.httpStatus = res.status
     throw e
   }
 
   if (resBody.ok !== true) {
-    // 服务端自己报的错：它给的消息比我编的准，直接用
-    const e = new Error(resBody.error?.message || `请求失败（HTTP ${res.status}）`)
+    // 服务端自己报的错：它给的消息比我编的准，直接用（契约要求服务端一律给中文人话）
+    const e = new Error(resBody.error?.message || '操作没成功，稍后再试一次')
     e.code = resBody.error?.code || `HTTP_${res.status}`
+    e.httpStatus = res.status
     throw e
   }
 
