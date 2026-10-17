@@ -96,34 +96,53 @@ function generateFoodImage(name, type, width = 360, height = 220) {
   return canvas.toDataURL('image/png')
 }
 
+/* 占位图缓存：同一个「名字 + 类型」算一次就够了。
+   ⚠️ 为什么要缓存：抽奖轮播是 80ms 换一次名字，切回同一个名字时如果还要重算
+      （400 个粒子 + 5 层渐变，几十毫秒），那几十毫秒里就会露出上一道菜的图。
+      缓存命中时是**同步** setSrc，没有空窗。 */
+const placeholderCache = new Map()
+
+function cacheKeyOf(name, type) {
+  return `${type || 'dish'}|${name || ''}`
+}
+
 export default function FoodImage({ name, type, className = '' }) {
-  const [src, setSrc] = useState('')
-  const [isReal, setIsReal] = useState(false)
+  const cacheKey = cacheKeyOf(name, type)
+
+  /* ⚠️ 关键：**真实图和已缓存的占位图都在渲染期间同步算**，不放 useEffect。
+     useEffect 在浏览器**绘制之后**才执行 —— 里面 setSrc 永远慢一帧，
+     那一帧就是「兰州拉面」配着上一道菜的「辣子鸡」图（Day 24 实测抓到过 240ms 那一帧）。
+     resolveFoodImage 是纯查表、placeholderCache 是同步 Map，都没有副作用，
+     完全可以、也应该在 render 里算。 */
+  const realPath = resolveFoodImage(name)
+  const isReal = Boolean(realPath)
+  const cachedPlaceholder = realPath ? '' : placeholderCache.get(cacheKey) || ''
+
+  /* 还没生成过的占位图才需要异步（canvas 画 400 个粒子要几十毫秒，塞进渲染会掉帧）。
+     存的时候带上 cacheKey：只认「属于当前这道菜」的结果，上一道菜的结果不许顶上。 */
+  const [generated, setGenerated] = useState({ key: '', src: '' })
   const rafRef = useRef(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
+    if (realPath) return // 有真实图，不需要生成
+    if (placeholderCache.has(cacheKey)) return // 缓存已有，渲染时已经同步取到
 
-    // 1. 尝试查找真实图片
-    const realPath = resolveFoodImage(name)
-    if (realPath) {
-      setIsReal(true)
-      setSrc(realPath)
-      return
-    }
-
-    // 2. 没有真实图片 → 异步生成程序化占位图
-    setIsReal(false)
     rafRef.current = requestAnimationFrame(() => {
       try {
         const dataUrl = generateFoodImage(name, type)
-        setSrc(dataUrl)
+        placeholderCache.set(cacheKey, dataUrl)
+        setGenerated({ key: cacheKey, src: dataUrl })
       } catch (e) {
         console.warn('[FoodImage] generate failed:', e)
       }
     })
     return () => cancelAnimationFrame(rafRef.current)
-  }, [name, type])
+  }, [cacheKey, name, type, realPath])
+
+  /* 取值顺序：真实图 → 已缓存占位图 → 本次生成的（且必须属于当前这道菜）。
+     三者都拿不到就显示底色块 —— **宁可空着，绝不显示别人的菜**。 */
+  const src = realPath || cachedPlaceholder || (generated.key === cacheKey ? generated.src : '')
 
   if (!src) {
     return (
@@ -141,6 +160,11 @@ export default function FoodImage({ name, type, className = '' }) {
 
   return (
     <img
+      /* ⚠️ key={src}：换图时让 React **重建** <img>，而不是原地改 src。
+         原地改 src 时，浏览器会一直显示上一张（stale image）直到新图解码完 ——
+         那张 jpg 有 1MB+，慢的时候能挂住一秒，"名字和图对不上"就是这么来的。
+         重建的代价是空一帧底色，但绝不会张冠李戴。 */
+      key={src}
       src={src}
       alt={isReal ? name : ''}
       className={`${className}${isReal ? ' is-real' : ''}`}
