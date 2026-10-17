@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_BASE, createItem, fetchHealth, fetchItems } from '../lib/api.js'
 
 /* 页面 5 · 检查台（Day 20）
@@ -30,6 +30,17 @@ export default function Check() {
   const [write, setWrite] = useState({ status: STATE.idle })
   const [busy, setBusy] = useState(false)
 
+  /* 防连点：和 Add.jsx 一样用 **ref**，而不是看 busy 状态 ——
+     setState 是异步的，同一帧里连点多次时 `busy` 还是 false，`if (busy) return` 拦不住。
+
+     🔴 2026-10-17 实测（Day 24）：连点 5 次 → 5 个 POST 全发出去
+        → 1 个 201 + 4 个 409（名字只精确到秒，同秒必撞）
+        → **最后那个 409 把 201 的成功提示覆盖掉**，界面显示「写失败」，
+          可数据其实已经写进去了 —— 用户以为没成功，会再点一次，写出更多重复。
+
+     ref 是同步的：赋值那一刻就生效，同一帧的后续点击立刻能看到。 */
+  const busyRef = useRef(false)
+
   /* ① 健康检查 */
   const runHealth = useCallback(async () => {
     setHealth({ status: STATE.loading })
@@ -59,7 +70,8 @@ export default function Check() {
 
   /* ③ 写入测试 —— 真发一次 POST，往库里写一条 */
   async function runWrite() {
-    if (busy) return
+    if (busyRef.current) return // 同步锁：同一帧只放行一次（这才是真正拦住连点的那道）
+    busyRef.current = true
     setBusy(true)
     setWrite({ status: STATE.loading })
 
@@ -82,6 +94,7 @@ export default function Check() {
     } catch (err) {
       setWrite({ status: STATE.fail, msg: err?.message || '写入失败' })
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
