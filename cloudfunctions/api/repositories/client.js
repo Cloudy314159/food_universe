@@ -43,6 +43,23 @@ function parseJsonQuietly(text) {
   }
 }
 
+/** 从 `Content-Range` 响应头里取「符合条件的总行数」。Day 24 修复 total 语义时新增。
+ *
+ *  ── 背景 ──────────────────────────────────────────────────────────────
+ *  以前 `index.js` 里写的是 `total: rows.length` —— 那是**本页返回了几条**，
+ *  不是"表里一共几条"。传 `?limit=3` 时就回 `total: 3`（实际 18）。
+ *  `total` 这个字段于是变成 `items.length` 的同义词，毫无信息量。
+ *
+ *  PostgREST 带 `Prefer: count=exact` 时会回：
+ *    · `0-17/18`  → 本次返回第 0–17 条，**总共 18 条**  ← 我们要的是斜杠后面那个
+ *    · `0-0/0`    → 一条都没有
+ *    · `0-2/*`    → 平台没算总数（不支持 count）→ 用本次行数兜底
+ */
+function parseTotalFromContentRange(header, fallback) {
+  const m = /\/(\d+)\s*$/.exec(String(header || ''))
+  return m ? Number(m[1]) : fallback
+}
+
 /** 造一个「**人话给用户、细节给日志**」的数据库错误。Day 23 新增。
  *
  *  ── 为什么要拆成两个字段 ────────────────────────────────────────────
@@ -82,13 +99,18 @@ function requireApiKey() {
  * 查一张表。
  * @param {string} table  表名（**只允许代码里写死的字面量**，绝不能用用户输入）
  * @param {object} params PostgREST 查询参数，如 { select, order, limit, name }
- * @returns {Promise<Array>} 行数组
+ * @param {object} [options]
+ * @param {boolean} [options.withCount] 要不要顺便拿「总行数」。
+ *        传 `true` → 返回 `{ rows, total }`；不传 → 返回 `rows` 数组（老行为，不变）。
+ *        ⚠️ 默认不开：`count=exact` 会让数据库多算一次总数，不是免费的。
+ *        只有"要把 total 回给前端"的地方（两个列表接口）才需要开。
+ * @returns {Promise<Array|{rows: Array, total: number}>}
  *
  * ⚠️ 关于"参数化"：参数用 **URLSearchParams** 拼，它自动做 URL 编码 ——
  *    用户传进来的值（比如 ?limit=）不可能变成 SQL 片段。
  *    表名和列名都是代码里写死的字面量。所以不存在注入风险。
  */
-async function queryTable(table, params) {
+async function queryTable(table, params, options = {}) {
   const url = new URL(`${REST_BASE}/${table}`)
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -100,6 +122,7 @@ async function queryTable(table, params) {
     headers: {
       Authorization: `Bearer ${requireApiKey()}`,
       Accept: 'application/json',
+      ...(options.withCount ? { Prefer: 'count=exact' } : {}),
     },
   })
 
@@ -114,6 +137,13 @@ async function queryTable(table, params) {
     err.code = 'DB_QUERY_BAD_RESPONSE'
     err.detail = `查询 ${table} 返回的不是 JSON：${String(text).slice(0, 200)}`
     throw err
+  }
+
+  if (options.withCount) {
+    return {
+      rows,
+      total: parseTotalFromContentRange(res.headers.get('content-range'), rows.length),
+    }
   }
   return rows
 }

@@ -23,14 +23,23 @@ const COLUMNS = 'id,name,type,platform,spicy,tags,source,created_at'
 /**
  * 列出候选条目（首页候选池、清单页都用它）。
  * @param {number} limit 最多取几条
- * @returns {Promise<Array>} 行数组
+ * @returns {Promise<{rows: Array, total: number}>} 行数组 + **表里的总条数**
+ *
+ * ⚠️ Day 24 修正：`total` 以前在接口层用 `rows.length` 顶替 —— 那是"本页几条"，
+ *    传 `?limit=3` 时会回 `total: 3`（实际 18），语义是错的。
+ *    现在由数据库给真实总数（`Prefer: count=exact` + `Content-Range` 头）。
+ *    `limit` 管"取几条"、`total` 管"一共几条"，这两件事不再混在一起。
  */
 async function listItems(limit) {
-  return queryTable(TABLE, {
-    select: COLUMNS,
-    order: 'id',
-    limit: String(limit),
-  })
+  return queryTable(
+    TABLE,
+    {
+      select: COLUMNS,
+      order: 'id',
+      limit: String(limit),
+    },
+    { withCount: true },
+  )
 }
 
 /**

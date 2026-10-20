@@ -20,14 +20,22 @@ const COLUMNS = 'id,item_id,item_name,drawn_at'
 /**
  * 列出历史记录，**按时间倒序**（最新的在最上面，PRD J4）。
  * @param {number} limit 最多取几条
- * @returns {Promise<Array>} 行数组
+ * @returns {Promise<{rows: Array, total: number}>} 行数组 + **历史总条数**
+ *
+ * ⚠️ Day 24 修正（和 items 同一个问题）：`limit` 只限制"取几条"，
+ *    `total` 要的是"一共几条"。以前接口层用 `rows.length` 顶替，
+ *    默认只取 20 条时 `total` 永远是 20 —— 即使实际有 87 条历史。
  */
 async function listHistory(limit) {
-  return queryTable(TABLE, {
-    select: COLUMNS,
-    order: 'drawn_at.desc',
-    limit: String(limit),
-  })
+  return queryTable(
+    TABLE,
+    {
+      select: COLUMNS,
+      order: 'drawn_at.desc',
+      limit: String(limit),
+    },
+    { withCount: true },
+  )
 }
 
 module.exports = { listHistory }

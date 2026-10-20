@@ -58,18 +58,21 @@ function handleHealth(res) {
   sendOk(res, { service: 'model' })
 }
 
-/** GET /api/items —— 读全部候选条目 */
+/** GET /api/items —— 读候选条目
+ *  ⚠️ `limit` 只限制"取几条"，`total` 是**表里的总条数**（Day 24 修正）。
+ *     以前写 `total: rows.length`，等于把"本页几条"当成"一共几条"：
+ *     `?limit=3` 就回 `total: 3`（实际 18），这个字段等于白给。 */
 async function handleItems(res, url) {
   const limit = parseLimit(url.searchParams.get('limit'), DEFAULT_ITEMS_LIMIT, MAX_ITEMS_LIMIT)
-  const rows = await itemsRepository.listItems(limit)
-  sendOk(res, { items: rows, total: rows.length })
+  const { rows, total } = await itemsRepository.listItems(limit)
+  sendOk(res, { items: rows, total })
 }
 
-/** GET /api/history —— 读历史记录，按时间倒序 */
+/** GET /api/history —— 读历史记录，按时间倒序（`total` 同样是总条数） */
 async function handleHistory(res, url) {
   const limit = parseLimit(url.searchParams.get('limit'), DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT)
-  const rows = await historyRepository.listHistory(limit)
-  sendOk(res, { entries: rows, total: rows.length })
+  const { rows, total } = await historyRepository.listHistory(limit)
+  sendOk(res, { entries: rows, total })
 }
 
 /* POST /api/items —— 新增一个条目
