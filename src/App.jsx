@@ -243,7 +243,11 @@ export default function App() {
     if (drawingRef.current) return
 
     const all = loadItems()
-    const pool = applyFilter(all, getFilter())
+    /* 抽签池 = 候选里的**菜**（爸爸 2026-10-20 定：想吃的是菜，不是店）。
+       ⚠️ 和浏览区有意分开：浏览网格（candidates）店和菜都显示，
+          抽签只用 dish —— 「换一个」永远不会甩给你一个店名。
+       ↩️ 想恢复"店和菜一起抽"：删掉 `.filter(...)` 这半句即可。 */
+    const pool = applyFilter(all, getFilter()).filter((it) => it.type === 'dish')
 
     // 候选为 0 → 不抽取，只给提示；绝不回退到被过滤掉的条目（H3）
     if (pool.length === 0) {

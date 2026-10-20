@@ -160,11 +160,15 @@ export default function Home({
   const [shuffleItem, setShuffleItem] = useState(null)
 
   function handleDraw() {
-    if (shuffling || isSwapping || candidates.length === 0) return
+    /* 轮播只在「菜」里闪 —— 必须和真正的抽签池一致（见 App.jsx 的 draw()）。
+       否则动画会闪出店名、最后却落在一道菜上，看着像抽错了。
+       池子被筛空时静默返回，沿用原来的行为。 */
+    const pool = candidates.filter((it) => it.type === 'dish')
+    if (shuffling || isSwapping || pool.length === 0) return
     setShuffling(true)
     let count = 0
     const interval = setInterval(() => {
-      const random = candidates[Math.floor(Math.random() * candidates.length)]
+      const random = pool[Math.floor(Math.random() * pool.length)]
       setShuffleItem(random)
       count++
       if (count >= 8) {
