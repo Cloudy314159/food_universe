@@ -382,17 +382,25 @@ export function adoptServerData({ items, history } = {}) {
   ensureReady()
 
   // ── items ──
-  const incoming = Array.isArray(items) ? items : []
-  const localUser = loadItems().filter((it) => it?.source === 'user')
+  /* ⚠️ 2026-10-20 修（v1.0 上发现的真 bug）：**以服务端为准，不再合并本地条目**。
+     ─────────────────────────────────────────────────────────────────────
+     原来这里会把 localStorage 里 `source === 'user'` 的条目留下来，
+     那是 Day 18 之前的临时兜底 —— 那时添加页还只写本地、上不了云，
+     不保留的话一刷新新加的条目就没了。
 
-  const byId = new Map()
-  for (const it of incoming) {
-    if (it && it.id != null) byId.set(it.id, { ...it, tags: Array.isArray(it.tags) ? it.tags : [] })
-  }
-  for (const it of localUser) {
-    if (!byId.has(it.id)) byId.set(it.id, it)
-  }
-  const mergedItems = [...byId.values()]
+     Day 18 之后添加流程变成「先 POST 成功、再把服务端返回的那条写进本地」
+     （见 App.jsx 的 handleAdd），本地**不会**再出现"还没上云"的条目。
+     这个兜底于是只剩副作用：
+       **在云端删掉的条目，刷新后会从本地这份被加回来** —— 用户看到"删了又复活"。
+     2026-10-20 现场复现过：服务端查不到「Day22待删香锅10733」，
+     页面上却还在，因为它活在 localStorage 里。
+
+     所以现在直接拿服务端数据覆盖本地。真要有"离线新增"的需求，
+     得单独做一个待同步队列，而不是靠这种合并。 */
+  const incoming = Array.isArray(items) ? items : []
+  const mergedItems = incoming
+    .filter((it) => it && it.id != null)
+    .map((it) => ({ ...it, tags: Array.isArray(it.tags) ? it.tags : [] }))
   writeRaw('items', mergedItems)
 
   // ── history ──

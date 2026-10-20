@@ -1,7 +1,7 @@
 {
   "name": "chisha",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "想吃啥 · 给大学生用的外卖选择小助手（Day 7 MVP）",
   "scripts": {
