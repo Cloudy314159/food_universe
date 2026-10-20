@@ -87,6 +87,104 @@ const IMAGE_MAP = {
   夹馍: '/food/dessert.jpg',
   烧烤: '/food/bbq.jpg',
   烤: '/food/bbq.jpg',
+
+  /* ═══════════════════════════════════════════════════════════════════
+     2026-10-20 扩充（Day 25 · 甲方案）
+     ───────────────────────────────────────────────────────────────────
+     原来的表只覆盖「中式正餐 / 面食 / 辣菜」，可外卖里最常见的
+     **快餐、火锅、日料、韩餐、饮品、早餐** 全都查不到 → 只能落抽象占位图。
+     这就是"新加的菜没有图片"的直接原因。
+
+     ⚠️ 两条规矩（别破坏）：
+     1. **只用具体词，不用单字** —— 关键词是按长度降序匹配的，单字很脏：
+        写「炸」会让「炸酱面」变成炸鸡图，写「锅」会让「锅包肉」变成火锅图。
+     2. **这里出现的每个 /food/xxx.jpg 都必须真实存在** —— 少一张就是破图。
+        pizza / sushi 是 Day 25 新加的（AI 生成后裁掉水印、压成 jpg）。
+     ═══════════════════════════════════════════════════════════════════ */
+
+  // 火锅 / 涮锅：红油视觉和「辣菜」最接近
+  火锅: '/food/spicy.jpg',
+  涮锅: '/food/spicy.jpg',
+  麻辣锅: '/food/spicy.jpg',
+  海底捞: '/food/spicy.jpg',
+  小龙坎: '/food/spicy.jpg',
+  呷哺: '/food/spicy.jpg',
+  部队锅: '/food/spicy.jpg',
+  砂锅粥: '/food/congee.jpg', // 比「砂锅」长，优先命中
+  砂锅: '/food/soup.jpg',
+
+  // 西式快餐 / 炸物
+  汉堡: '/food/chicken.jpg',
+  薯条: '/food/chicken.jpg',
+  炸鸡: '/food/chicken.jpg',
+  鸡翅: '/food/chicken.jpg',
+  鸡腿: '/food/chicken.jpg',
+  麦当劳: '/food/chicken.jpg',
+  肯德基: '/food/chicken.jpg',
+  德克士: '/food/chicken.jpg',
+  华莱士: '/food/chicken.jpg',
+  汉堡王: '/food/chicken.jpg',
+
+  // 披萨
+  披萨: '/food/pizza.jpg',
+  比萨: '/food/pizza.jpg',
+  必胜客: '/food/pizza.jpg',
+  达美乐: '/food/pizza.jpg',
+
+  // 日料
+  寿司: '/food/sushi.jpg',
+  刺身: '/food/sushi.jpg',
+  三文鱼: '/food/sushi.jpg',
+  日料: '/food/sushi.jpg',
+  味千: '/food/noodles.jpg',
+
+  // 韩式
+  拌饭: '/food/rice.jpg',
+  石锅: '/food/spicy.jpg',
+  泡菜: '/food/spicy.jpg',
+  年糕: '/food/spicy.jpg',
+
+  // 饮品 / 甜品
+  奶茶: '/food/dessert.jpg',
+  咖啡: '/food/dessert.jpg',
+  果汁: '/food/dessert.jpg',
+  蛋糕: '/food/dessert.jpg',
+  冰淇淋: '/food/dessert.jpg',
+
+  // 早餐 / 面点
+  包子: '/food/dumpling.jpg',
+  小笼: '/food/dumpling.jpg',
+  灌汤包: '/food/dumpling.jpg',
+  生煎: '/food/dumpling.jpg',
+  油条: '/food/dumpling.jpg',
+  豆浆: '/food/congee.jpg',
+  煎饼: '/food/dumpling.jpg',
+  肠粉: '/food/noodles.jpg',
+  早点: '/food/dumpling.jpg',
+
+  // 卤味 / 禽肉
+  卤肉: '/food/pork.jpg',
+  烤鸭: '/food/bbq.jpg',
+  鸭脖: '/food/chicken.jpg',
+  鹅: '/food/chicken.jpg',
+  羊肉: '/food/beef.jpg',
+  羊蝎: '/food/beef.jpg',
+  羊排: '/food/beef.jpg',
+
+  // 常见连锁品牌（外卖里常被直接当菜名加，比如库里那条「真功夫」）
+  真功夫: '/food/rice.jpg',
+  吉野家: '/food/rice.jpg',
+  喜茶: '/food/dessert.jpg',
+  蜜雪: '/food/dessert.jpg',
+  奈雪: '/food/dessert.jpg',
+  茶百道: '/food/dessert.jpg',
+  古茗: '/food/dessert.jpg',
+
+  // 米饭类 / 其他
+  米线: '/food/noodles.jpg',
+  咖喱: '/food/rice.jpg',
+  炒饭: '/food/rice.jpg',
+  盖饭: '/food/rice.jpg',
 }
 
 /**
