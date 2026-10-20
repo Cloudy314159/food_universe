@@ -73,6 +73,32 @@ npm run preview
 
 ---
 
+## 四、发布前检查（每次上线前跑一遍）
+
+```bash
+bash .workbuddy/skills/verify-project/scripts/verify.sh
+```
+
+逐项输出 `PASS` / `FAIL` + 证据。**任一项 FAIL 就不该发布** —— 脚本退出码会是 `1`，
+全过是 `0`，不用靠眼睛判断。
+
+| # | 查什么 | 怎么算通过 |
+|---|---|---|
+| 1 | 公网首页展示真实数据 | 页面「共 N 个候选」== 接口 `total`。必须用真浏览器读 —— `curl` 会被默认域名的「风险提醒」拦截页骗过（状态码照样 200） |
+| 2 | 三个 GET 接口 | `/api/health`、`/api/items`、`/api/history` 都回 `ok:true` |
+| 3 | 增改删闭环 | 写入 → 读到 → 改掉 → 删掉 → **再读必须没有**（防"只删了本地"的假删） |
+| 4 | 硬编码密钥 | 当前代码 + Git 全部历史都 0 命中。只扫被 git 跟踪的文件，**避开含真 Key 的部署配置** |
+| 5 | 忽略规则 | `.env` 被忽略、`.env.example` 存在且没有真值、仓库里只有 `.env.example` |
+| 6 | 数据库 | `items` / `history` 两张表都能读出真实行（不直连库，不碰凭据） |
+
+在对话里也可以直接说「跑一下发布前检查」。
+
+> 这个 Skill 自己也被验证过：故意把 `.gitignore` 里的 `.env` 规则注释掉，
+> 它会报 `[FAIL] .env 没被忽略`、退出码变 1；恢复后回到全 PASS。
+> 详细判定标准和"怎么故意弄坏来验它"，见 `.workbuddy/skills/verify-project/SKILL.md`。
+
+---
+
 ## 数据存在哪
 
 ⭐ **Day 17 起，数据存在云上的数据库**（CloudBase PostgreSQL），前端通过
