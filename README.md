@@ -95,7 +95,8 @@ bash .workbuddy/skills/verify-project/scripts/verify.sh
 
 > 这个 Skill 自己也被验证过：故意把 `.gitignore` 里的 `.env` 规则注释掉，
 > 它会报 `[FAIL] .env 没被忽略`、退出码变 1；恢复后回到全 PASS。
-> 详细判定标准和"怎么故意弄坏来验它"，见 `.workbuddy/skills/verify-project/SKILL.md`。
+> 完整说明（为什么这么判、每项 FAIL 了去哪查、已知局限）见 **`docs/verify-project.md`**；
+> 执行细节见 `.workbuddy/skills/verify-project/SKILL.md`。
 
 ---
 
